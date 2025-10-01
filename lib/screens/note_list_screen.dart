@@ -183,11 +183,6 @@ class _NoteListScreenState extends State<NoteListScreen> {
               title: Text('Sampah'),
               onTap: () => Navigator.pop(context),
             ),
-            ListTile(
-              leading: Icon(Icons.folder_open_outlined),
-              title: Text('Folder'),
-              onTap: () => Navigator.pop(context),
-            ),
             Divider(),
             ListTile(
               leading: Icon(Icons.settings_outlined),
