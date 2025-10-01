@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; // FIX 1: Menambahkan import yang kurang
+import 'package:provider/provider.dart'; 
 import '../models/note.dart';
-import '../providers/theme_provider.dart'; // FIX 1: Menambahkan import yang kurang
+import '../providers/theme_provider.dart'; 
 import 'note_edit_screen.dart';
 
 
@@ -159,12 +159,10 @@ class _NoteListScreenState extends State<NoteListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // FIX 2: Mendefinisikan themeProvider di dalam scope build
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return Scaffold(
       drawer: Drawer(
-        // IMPROVEMENT: Menggunakan warna dari tema
         backgroundColor: Theme.of(context).cardColor,
         child: ListView(
           padding: EdgeInsets.zero,
@@ -189,7 +187,6 @@ class _NoteListScreenState extends State<NoteListScreen> {
               title: Text('Pengaturan'),
               onTap: () => Navigator.pop(context),
             ),
-            // FIX 3: Memperbaiki sintaks Switch dan ListTile
             ListTile(
               title: Text('Mode Gelap'),
               trailing: Switch.adaptive(
@@ -239,9 +236,8 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   Widget _buildDefaultLayout() {
-    // IMPROVEMENT: Menggunakan warna dari tema agar dinamis
     final Color onBackgroundColor = Theme.of(context).colorScheme.onBackground;
-    final Color secondaryTextColor = Theme.of(context).textTheme.bodySmall!.color!;
+    final Color secondaryTextColor = Theme.of(context).textTheme.bodySmall?.color ?? (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade400 : Colors.grey.shade600);
 
     return CustomScrollView(
       slivers: [
@@ -341,6 +337,9 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   Widget _buildNoteTile(Note note, bool isSelected) {
+    final Color primaryColor = Theme.of(context).primaryColor;
+    final TextStyle? bodySmallStyle = Theme.of(context).textTheme.bodySmall;
+
     return ListTile(
       onTap: () {
         if (_isSelectionMode) {
@@ -353,12 +352,12 @@ class _NoteListScreenState extends State<NoteListScreen> {
         _startSelection(note);
       },
       contentPadding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 0),
-      tileColor: isSelected ? Theme.of(context).primaryColor.withOpacity(0.2) : null,
+      tileColor: isSelected ? primaryColor.withOpacity(0.2) : null,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       leading: _isSelectionMode
           ? Icon(
         isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
+        color: isSelected ? primaryColor : Colors.grey,
       )
           : Container(
         width: 50,
@@ -367,7 +366,26 @@ class _NoteListScreenState extends State<NoteListScreen> {
         child: Center(child: Icon(Icons.description, color: Colors.grey.shade500)),
       ),
       title: Text(note.title, style: TextStyle(fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
-      subtitle: Text(formatDate(note.timestamp), style: Theme.of(context).textTheme.bodySmall),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(formatDate(note.timestamp), style: bodySmallStyle), 
+          if (note.tags.isNotEmpty) 
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(
+                note.tags.map((tag) => '#$tag').join(' '),
+                style: bodySmallStyle?.copyWith(
+                  color: primaryColor, 
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ) ?? TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+      ),
     );
   }
 
