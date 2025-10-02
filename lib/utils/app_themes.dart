@@ -21,7 +21,7 @@ class AppThemes {
     ),
   );
 
-  // Tema untuk Mode Gelap (Dark Mode) - Sesuai yang sudah ada
+  // Tema untuk Mode Gelap (Dark Mode)
   static final ThemeData darkTheme = ThemeData(
     brightness: Brightness.dark,
     scaffoldBackgroundColor: Colors.black,

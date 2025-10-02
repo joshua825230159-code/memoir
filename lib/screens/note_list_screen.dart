@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; 
+import 'package:provider/provider.dart';
 import '../models/note.dart';
-import '../providers/theme_provider.dart'; 
+import '../providers/theme_provider.dart';
 import 'note_edit_screen.dart';
+import 'tag_filter_screen.dart';
 
-
-// Enum untuk kriteria sorting
 enum SortBy { date, title }
 
 class NoteListScreen extends StatefulWidget {
@@ -14,16 +13,29 @@ class NoteListScreen extends StatefulWidget {
 }
 
 class _NoteListScreenState extends State<NoteListScreen> {
-  // Daftar catatan dimulai dalam keadaan kosong
   final List<Note> notes = [];
 
-  // Variabel State untuk Sorting
   SortBy _currentSortBy = SortBy.date;
   bool _isAscending = false;
 
-  // State untuk mode seleksi
+  Set<String> _activeFilterTags = {};
+
   bool _isSelectionMode = false;
   final Set<Note> _selectedNotes = {};
+
+  List<Note> get _filteredNotes {
+    if (_activeFilterTags.isEmpty) {
+      return notes;
+    }
+    return notes.where((note) {
+      return _activeFilterTags.every((filterTag) => note.tags.contains(filterTag));
+    }).toList();
+  }
+
+  Set<String> get _allAvailableTags {
+    return notes.expand((note) => note.tags).toSet();
+  }
+
 
   @override
   void initState() {
@@ -93,11 +105,12 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   void _selectAllNotes() {
+    final notesToSelect = _filteredNotes;
     setState(() {
-      if (_selectedNotes.length == notes.length) {
+      if (_selectedNotes.length == notesToSelect.length) {
         _selectedNotes.clear();
       } else {
-        _selectedNotes.addAll(notes);
+        _selectedNotes.addAll(notesToSelect);
       }
     });
   }
@@ -152,6 +165,26 @@ class _NoteListScreenState extends State<NoteListScreen> {
     }
   }
 
+  void _openTagFilter() async {
+    Navigator.pop(context);
+
+    final selectedTags = await Navigator.push<Set<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TagFilterScreen(
+          allTags: _allAvailableTags,
+          initiallySelectedTags: _activeFilterTags,
+        ),
+      ),
+    );
+
+    if (selectedTags != null) {
+      setState(() {
+        _activeFilterTags = selectedTags;
+      });
+    }
+  }
+
   String formatDate(DateTime date) {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
     return "${date.day} ${monthNames[date.month - 1]}";
@@ -174,7 +207,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
             ListTile(
               leading: Icon(Icons.label_outline),
               title: Text('Tag'),
-              onTap: () => Navigator.pop(context),
+              onTap: _openTagFilter,
             ),
             ListTile(
               leading: Icon(Icons.delete_outline),
@@ -195,8 +228,8 @@ class _NoteListScreenState extends State<NoteListScreen> {
                   final provider = Provider.of<ThemeProvider>(context, listen: false);
                   provider.toggleTheme(value);
                 },
-              ), // Kurung tutup untuk Switch
-            ), // Kurung tutup untuk ListTile
+              ),
+            ),
           ],
         ),
       ),
@@ -213,6 +246,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   Widget _buildSelectionModeLayout() {
+    final currentNotes = _filteredNotes;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Column(
@@ -222,9 +256,9 @@ class _NoteListScreenState extends State<NoteListScreen> {
           SizedBox(height: 10),
           Expanded(
             child: ListView.builder(
-              itemCount: notes.length,
+              itemCount: currentNotes.length,
               itemBuilder: (context, index) {
-                final note = notes[index];
+                final note = currentNotes[index];
                 final isSelected = _selectedNotes.contains(note);
                 return _buildNoteTile(note, isSelected);
               },
@@ -238,6 +272,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
   Widget _buildDefaultLayout() {
     final Color onBackgroundColor = Theme.of(context).colorScheme.onBackground;
     final Color secondaryTextColor = Theme.of(context).textTheme.bodySmall?.color ?? (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade400 : Colors.grey.shade600);
+    final currentNotes = _filteredNotes;
 
     return CustomScrollView(
       slivers: [
@@ -264,7 +299,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    '${notes.length} catatan',
+                    '${currentNotes.length} catatan',
                     style: TextStyle(fontSize: 16, color: secondaryTextColor),
                   ),
                 ],
@@ -320,15 +355,49 @@ class _NoteListScreenState extends State<NoteListScreen> {
             ),
           ),
         ),
+
+        if (_activeFilterTags.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Wrap(
+                spacing: 8.0,
+                runSpacing: 4.0,
+                children: [
+                  ..._activeFilterTags.map((tag) => Chip(
+                    label: Text(tag),
+                    onDeleted: () {
+                      setState(() {
+                        _activeFilterTags.remove(tag);
+                      });
+                    },
+                  )),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _activeFilterTags.clear();
+                      });
+                    },
+                    child: Chip(
+                      label: Text('Hapus Semua', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      avatar: Icon(Icons.close, color: Theme.of(context).colorScheme.error, size: 18),
+                      backgroundColor: Theme.of(context).colorScheme.errorContainer.withOpacity(0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
         SliverPadding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                final note = notes[index];
+                final note = currentNotes[index];
                 return _buildNoteTile(note, false);
               },
-              childCount: notes.length,
+              childCount: currentNotes.length,
             ),
           ),
         ),
@@ -369,14 +438,14 @@ class _NoteListScreenState extends State<NoteListScreen> {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(formatDate(note.timestamp), style: bodySmallStyle), 
-          if (note.tags.isNotEmpty) 
+          Text(formatDate(note.timestamp), style: bodySmallStyle),
+          if (note.tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4.0),
               child: Text(
                 note.tags.map((tag) => '#$tag').join(' '),
                 style: bodySmallStyle?.copyWith(
-                  color: primaryColor, 
+                  color: primaryColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ) ?? TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.w500),
@@ -407,7 +476,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
               TextButton(
                 onPressed: _selectAllNotes,
                 child: Text(
-                  _selectedNotes.length == notes.length ? 'BATALKAN' : 'PILIH SEMUA',
+                  _selectedNotes.length == _filteredNotes.length ? 'BATALKAN' : 'PILIH SEMUA',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 style: TextButton.styleFrom(

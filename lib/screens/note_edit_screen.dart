@@ -4,17 +4,17 @@ import '../models/note.dart';
 class NoteEditScreen extends StatefulWidget {
   final Note? note;
 
-  NoteEditScreen({this.note});
+  const NoteEditScreen({super.key, this.note});
 
   @override
-  _NoteEditScreenState createState() => _NoteEditScreenState();
+  State<NoteEditScreen> createState() => _NoteEditScreenState();
 }
 
 class _NoteEditScreenState extends State<NoteEditScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
-  
-  Set<String> _currentTags = {}; 
+
+  Set<String> _currentTags = {};
 
   @override
   void initState() {
@@ -22,19 +22,25 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     if (widget.note != null) {
       _titleController.text = widget.note!.title;
       _contentController.text = widget.note!.content;
-      _currentTags = Set.from(widget.note!.tags); 
+      _currentTags = Set.from(widget.note!.tags);
     } else {
-      _titleController.text = 'Judul';
     }
   }
 
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
   Future<bool> _onWillPop() async {
-    if (_contentController.text.isNotEmpty || _titleController.text != 'Judul') {
+    if (_contentController.text.isNotEmpty || _titleController.text.isNotEmpty) {
       final noteToSave = Note(
         title: _titleController.text.isEmpty ? 'Tanpa Judul' : _titleController.text,
         content: _contentController.text,
         timestamp: DateTime.now(),
-        tags: _currentTags, 
+        tags: _currentTags,
       );
       Navigator.pop(context, noteToSave);
     } else {
@@ -44,72 +50,88 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
 
   void _deleteNote() {
-    Navigator.pop(context, 'deleted');
+    if (widget.note != null) {
+      Navigator.pop(context, 'deleted');
+    } else {
+      Navigator.pop(context);
+    }
   }
-  
-  void _showTagDialog() {
-    showDialog(
+
+  void _showTagBottomSheet() {
+    final tagInputController = TextEditingController();
+    final focusNode = FocusNode();
+
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
       builder: (context) {
-        String newTag = '';
-        return AlertDialog(
-          title: Text('Kelola Tag'),
-          content: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setStateDialog) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Display current tags
-                  Wrap(
-                    spacing: 8.0,
-                    children: _currentTags.map((tag) => Chip(
-                      label: Text(tag),
-                      onDeleted: () {
-                        // Use setState of the main screen to update the note's tags
-                        setState(() { 
-                          _currentTags.remove(tag);
-                        });
-                        // Use setStateDialog to update the dialog's appearance
-                        setStateDialog(() {}); 
-                      },
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    )).toList(),
-                  ),
-                  // Input field for new tag
-                  TextField(
-                    autofocus: true,
-                    decoration: InputDecoration(hintText: 'Masukkan tag baru'),
-                    onChanged: (value) => newTag = value.trim().toLowerCase(),
-                    onSubmitted: (value) {
-                      if (newTag.isNotEmpty && !_currentTags.contains(newTag)) {
-                        setState(() {
-                          _currentTags.add(newTag);
-                        });
-                        Navigator.pop(context); // Close the dialog
-                      }
-                    },
-                  ),
-                ],
-              );
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setStateBottomSheet) {
+
+            void addTag() {
+              final newTag = tagInputController.text.trim().toLowerCase();
+              if (newTag.isNotEmpty && !_currentTags.contains(newTag)) {
+                setState(() {
+                  _currentTags.add(newTag);
+                });
+                setStateBottomSheet(() {});
+                tagInputController.clear();
+                focusNode.requestFocus();
+              }
             }
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Tutup'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (newTag.isNotEmpty && !_currentTags.contains(newTag)) {
-                    setState(() {
-                      _currentTags.add(newTag);
-                    });
-                }
-                Navigator.pop(context);
-              },
-              child: Text('Tambahkan'),
-            ),
-          ],
+
+            return Padding(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                  left: 16, right: 16, top: 16
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Tambah tag', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Selesai')),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (_currentTags.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24.0),
+                      child: Center(child: Text('Belum ada tag.', style: TextStyle(color: Colors.grey[600]))),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8.0, runSpacing: 8.0,
+                      children: _currentTags.map((tag) => Chip(
+                        label: Text(tag),
+                        onDeleted: () {
+                          setState(() { _currentTags.remove(tag); });
+                          setStateBottomSheet(() {});
+                        },
+                      )).toList(),
+                    ),
+                  const SizedBox(height: 24),
+                  TextField(
+                    controller: tagInputController,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      hintText: '# Buat tag baru',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: Colors.grey.shade400)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: Colors.grey.shade400)),
+                    ),
+                    onSubmitted: (_) => addTag(),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -123,67 +145,32 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              // -- CUSTOM APP BAR --
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                 child: Row(
                   children: [
-                    IconButton(
-                      icon: Icon(Icons.arrow_back_ios_new),
-                      onPressed: () => _onWillPop(),
-                    ),
+                    IconButton(icon: const Icon(Icons.arrow_back_ios_new), onPressed: () => _onWillPop()),
                     Expanded(
                       child: TextField(
                         controller: _titleController,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: 'Judul',
-                        ),
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        decoration: const InputDecoration(border: InputBorder.none, hintText: 'Judul'),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                     ),
-                    IconButton(
-                        icon: Icon(Icons.label_outline), 
-                        onPressed: _showTagDialog
-                    ), 
-                    IconButton(icon: Icon(Icons.edit_outlined), onPressed: () {}),
-                    IconButton(
-                        icon: Icon(Icons.delete_outline), // Ikon diubah menjadi tempat sampah
-                        onPressed: _deleteNote
-                    ),
+                    IconButton(icon: const Icon(Icons.label_outline), onPressed: _showTagBottomSheet),
+                    IconButton(icon: const Icon(Icons.delete_outline), onPressed: _deleteNote),
                   ],
                 ),
               ),
-              
-              if (_currentTags.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 8.0),
-                  child: Wrap(
-                    spacing: 8.0,
-                    runSpacing: 0,
-                    children: _currentTags.map((tag) => Chip(
-                      label: Text('#$tag', style: TextStyle(fontSize: 12)),
-                      backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
-                      labelStyle: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.w500),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: EdgeInsets.zero,
-                    )).toList(),
-                  ),
-                ),
-
-              // -- AREA KONTEN CATATAN --
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: TextField(
                     controller: _contentController,
-                    decoration: InputDecoration(
-                      hintText: 'Mulai menulis...',
-                      border: InputBorder.none,
-                    ),
+                    decoration: const InputDecoration(hintText: 'Mulai menulis...', border: InputBorder.none),
                     maxLines: null,
                     keyboardType: TextInputType.multiline,
-                    autofocus: true,
+                    autofocus: widget.note == null,
                   ),
                 ),
               ),
