@@ -212,6 +212,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
     if (result != null) {
       setState(() {
         final List<Note> restoredNotes = result['restored'] ?? [];
+        final List<Note> permanentlyDeletedNotes = result['deletedPermanently'] ?? [];
         final bool wasEmptied = result['emptied'] ?? false;
 
         if (wasEmptied) {
@@ -225,6 +226,11 @@ class _NoteListScreenState extends State<NoteListScreen> {
            ScaffoldMessenger.of(context)
             ..removeCurrentSnackBar()
             ..showSnackBar(SnackBar(content: Text("${restoredNotes.length} catatan dipulihkan")));
+        } else if (permanentlyDeletedNotes.isNotEmpty) {
+            _deletedNotes.removeWhere((note) => permanentlyDeletedNotes.contains(note));
+            ScaffoldMessenger.of(context)
+            ..removeCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text("${permanentlyDeletedNotes.length} catatan dihapus permanen")));
         }
         _applySort();
       });

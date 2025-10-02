@@ -36,6 +36,29 @@ class _TrashScreenState extends State<TrashScreen> {
     }
   }
 
+  void _deleteSelectedNotesForever() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Permanen?'),
+        content: Text('${_selectedNotes.length} catatan yang dipilih akan dihapus secara permanen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context, {'deletedPermanently': _selectedNotes.toList()});
+            },
+            child: Text('Hapus', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _emptyTrash() {
     showDialog(
       context: context,
@@ -71,12 +94,18 @@ class _TrashScreenState extends State<TrashScreen> {
               onPressed: _emptyTrash,
               tooltip: 'Kosongkan Sampah',
             ),
-          if (_selectedNotes.isNotEmpty)
+          if (_selectedNotes.isNotEmpty) ...[
+            IconButton(
+              icon: const Icon(Icons.delete_forever),
+              onPressed: _deleteSelectedNotesForever,
+              tooltip: 'Hapus Permanen',
+            ),
             IconButton(
               icon: const Icon(Icons.restore_from_trash),
               onPressed: _restoreSelectedNotes,
               tooltip: 'Pulihkan',
             ),
+          ]
         ],
       ),
       body: _notesInTrash.isEmpty
