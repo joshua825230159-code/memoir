@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../providers/theme_provider.dart';
-import '../providers/tag_provider.dart';
 import 'note_edit_screen.dart';
 import 'tag_filter_screen.dart';
+import 'trash_screen.dart';
 
 enum SortBy { dateModified, dateCreated, title }
 
@@ -15,6 +15,7 @@ class NoteListScreen extends StatefulWidget {
 
 class _NoteListScreenState extends State<NoteListScreen> {
   final List<Note> notes = [];
+  final List<Note> _deletedNotes = [];
 
   SortBy _currentSortBy = SortBy.dateModified;
   bool _isAscending = false;
@@ -137,11 +138,12 @@ class _NoteListScreenState extends State<NoteListScreen> {
   void _deleteSelectedNotes() {
     setState(() {
       final count = _selectedNotes.length;
+      _deletedNotes.addAll(_selectedNotes);
       notes.removeWhere((note) => _selectedNotes.contains(note));
       _clearSelection();
       ScaffoldMessenger.of(context)
         ..removeCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text("$count catatan dihapus")));
+        ..showSnackBar(SnackBar(content: Text("$count catatan dipindahkan ke sampah")));
     });
   }
 
@@ -165,10 +167,13 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
     if (result != null) {
       if (result == 'deleted') {
-        setState(() => notes.remove(note));
+        setState(() {
+          _deletedNotes.add(note);
+          notes.remove(note);
+        });
         ScaffoldMessenger.of(context)
           ..removeCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text("Catatan dihapus")));
+          ..showSnackBar(SnackBar(content: Text("Catatan dipindahkan ke sampah")));
       } else if (result is Note) {
         setState(() {
           final index = notes.indexOf(note);
@@ -192,6 +197,37 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
     if (selectedTags != null) {
       setState(() => _activeFilterTags = selectedTags);
+    }
+  }
+
+  void _openTrashScreen() async {
+    Navigator.pop(context);
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TrashScreen(deletedNotes: _deletedNotes),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        final List<Note> restoredNotes = result['restored'] ?? [];
+        final bool wasEmptied = result['emptied'] ?? false;
+
+        if (wasEmptied) {
+          _deletedNotes.clear();
+          ScaffoldMessenger.of(context)
+            ..removeCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text("Sampah dikosongkan")));
+        } else if (restoredNotes.isNotEmpty) {
+          notes.addAll(restoredNotes);
+          _deletedNotes.removeWhere((note) => restoredNotes.contains(note));
+           ScaffoldMessenger.of(context)
+            ..removeCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text("${restoredNotes.length} catatan dipulihkan")));
+        }
+        _applySort();
+      });
     }
   }
 
@@ -230,7 +266,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
             ListTile(
               leading: Icon(Icons.delete_outline),
               title: Text('Sampah'),
-              onTap: () => Navigator.pop(context),
+              onTap: _openTrashScreen,
             ),
             Divider(),
             ListTile(
@@ -363,7 +399,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        Spacer(), // Dorong semua tombol ke kanan
+        Spacer(),
         PopupMenuButton<SortBy>(
           onSelected: _onSortCriteriaChanged,
           itemBuilder: (_) => [
