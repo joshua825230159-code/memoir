@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../providers/theme_provider.dart';
+import '../providers/tag_provider.dart';
 import 'note_edit_screen.dart';
 import 'tag_filter_screen.dart';
 
-enum SortBy { date, title }
+enum SortBy { dateModified, dateCreated, title }
 
 class NoteListScreen extends StatefulWidget {
   @override
@@ -15,48 +16,68 @@ class NoteListScreen extends StatefulWidget {
 class _NoteListScreenState extends State<NoteListScreen> {
   final List<Note> notes = [];
 
-  SortBy _currentSortBy = SortBy.date;
+  SortBy _currentSortBy = SortBy.dateModified;
   bool _isAscending = false;
 
   Set<String> _activeFilterTags = {};
-
   bool _isSelectionMode = false;
   final Set<Note> _selectedNotes = {};
 
+  bool _isSearching = false;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text;
+      });
+    });
+    _applySort();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   List<Note> get _filteredNotes {
-    if (_activeFilterTags.isEmpty) {
-      return notes;
+    List<Note> filtered = notes;
+
+    if (_activeFilterTags.isNotEmpty) {
+      filtered = filtered.where((note) =>
+          _activeFilterTags.every((tag) => note.tags.contains(tag))).toList();
     }
-    return notes.where((note) {
-      return _activeFilterTags.every((filterTag) => note.tags.contains(filterTag));
-    }).toList();
+
+    if (_isSearching && _searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filtered = filtered.where((note) =>
+      note.title.toLowerCase().contains(query) ||
+          note.content.toLowerCase().contains(query)).toList();
+    }
+
+    return filtered;
   }
 
   Set<String> get _allAvailableTags {
     return notes.expand((note) => note.tags).toSet();
   }
 
-
-  @override
-  void initState() {
-    super.initState();
-    _applySort();
-  }
-
   void _applySort() {
     setState(() {
-      if (_currentSortBy == SortBy.date) {
-        if (_isAscending) {
-          notes.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-        } else {
-          notes.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-        }
+      if (_currentSortBy == SortBy.dateModified) {
+        notes.sort((a, b) =>
+        _isAscending ? a.timestamp.compareTo(b.timestamp) : b.timestamp.compareTo(a.timestamp));
+      } else if (_currentSortBy == SortBy.dateCreated) {
+        notes.sort((a, b) =>
+        _isAscending ? a.createdAt.compareTo(b.createdAt) : b.createdAt.compareTo(a.createdAt));
       } else {
-        if (_isAscending) {
-          notes.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
-        } else {
-          notes.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
-        }
+        notes.sort((a, b) => _isAscending
+            ? a.title.toLowerCase().compareTo(b.title.toLowerCase())
+            : b.title.toLowerCase().compareTo(a.title.toLowerCase()));
       }
     });
   }
@@ -65,16 +86,14 @@ class _NoteListScreenState extends State<NoteListScreen> {
     if (newCriteria != null && newCriteria != _currentSortBy) {
       setState(() {
         _currentSortBy = newCriteria;
-        _isAscending = (_currentSortBy == SortBy.title);
+        _isAscending = (newCriteria == SortBy.title);
       });
       _applySort();
     }
   }
 
   void _toggleSortDirection() {
-    setState(() {
-      _isAscending = !_isAscending;
-    });
+    setState(() => _isAscending = !_isAscending);
     _applySort();
   }
 
@@ -115,10 +134,9 @@ class _NoteListScreenState extends State<NoteListScreen> {
     });
   }
 
-
   void _deleteSelectedNotes() {
     setState(() {
-      final int count = _selectedNotes.length;
+      final count = _selectedNotes.length;
       notes.removeWhere((note) => _selectedNotes.contains(note));
       _clearSelection();
       ScaffoldMessenger.of(context)
@@ -147,18 +165,14 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
     if (result != null) {
       if (result == 'deleted') {
-        setState(() {
-          notes.remove(note);
-        });
+        setState(() => notes.remove(note));
         ScaffoldMessenger.of(context)
           ..removeCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text("Catatan dihapus")));
       } else if (result is Note) {
         setState(() {
-          final originalIndex = notes.indexOf(note);
-          if (originalIndex != -1) {
-            notes[originalIndex] = result;
-          }
+          final index = notes.indexOf(note);
+          if (index != -1) notes[index] = result;
         });
         _applySort();
       }
@@ -167,7 +181,6 @@ class _NoteListScreenState extends State<NoteListScreen> {
 
   void _openTagFilter() async {
     Navigator.pop(context);
-
     final selectedTags = await Navigator.push<Set<String>>(
       context,
       MaterialPageRoute(
@@ -177,29 +190,34 @@ class _NoteListScreenState extends State<NoteListScreen> {
         ),
       ),
     );
-
     if (selectedTags != null) {
-      setState(() {
-        _activeFilterTags = selectedTags;
-      });
+      setState(() => _activeFilterTags = selectedTags);
     }
   }
 
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) _searchController.clear();
+    });
+  }
+
   String formatDate(DateTime date) {
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+    const monthNames = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
     return "${date.day} ${monthNames[date.month - 1]}";
   }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final currentNotes = _filteredNotes;
 
     return Scaffold(
       drawer: Drawer(
         backgroundColor: Theme.of(context).cardColor,
         child: ListView(
           padding: EdgeInsets.zero,
-          children: <Widget>[
+          children: [
             DrawerHeader(
               decoration: BoxDecoration(color: Theme.of(context).primaryColor),
               child: Text('Menu Catatan', style: TextStyle(color: Colors.white, fontSize: 24)),
@@ -224,31 +242,25 @@ class _NoteListScreenState extends State<NoteListScreen> {
               title: Text('Mode Gelap'),
               trailing: Switch.adaptive(
                 value: themeProvider.isDarkMode,
-                onChanged: (value) {
-                  final provider = Provider.of<ThemeProvider>(context, listen: false);
-                  provider.toggleTheme(value);
-                },
+                onChanged: (val) => themeProvider.toggleTheme(val),
               ),
             ),
           ],
         ),
       ),
-      floatingActionButton: _isSelectionMode ? null : FloatingActionButton(
+      floatingActionButton: (_isSelectionMode || _isSearching) ? null : FloatingActionButton(
         onPressed: _addNote,
         child: Icon(Icons.edit),
       ),
       body: SafeArea(
-        child: _isSelectionMode
-            ? _buildSelectionModeLayout()
-            : _buildDefaultLayout(),
+        child: _isSelectionMode ? _buildSelectionMode(currentNotes) : _buildDefaultLayout(currentNotes),
       ),
     );
   }
 
-  Widget _buildSelectionModeLayout() {
-    final currentNotes = _filteredNotes;
+  Widget _buildSelectionMode(List<Note> currentNotes) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
           SizedBox(height: 20),
@@ -269,115 +281,56 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
   }
 
-  Widget _buildDefaultLayout() {
-    final Color onBackgroundColor = Theme.of(context).colorScheme.onBackground;
-    final Color secondaryTextColor = Theme.of(context).textTheme.bodySmall?.color ?? (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade400 : Colors.grey.shade600);
-    final currentNotes = _filteredNotes;
+  Widget _buildDefaultLayout(List<Note> currentNotes) {
+    final onBg = Theme.of(context).colorScheme.onBackground;
+    final secTextColor = Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey;
 
     return CustomScrollView(
       slivers: [
         SliverAppBar(
           automaticallyImplyLeading: false,
           backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          expandedHeight: 176.0,
+          expandedHeight: 176,
           pinned: true,
           floating: true,
           flexibleSpace: FlexibleSpaceBar(
-            title: Text(
-              'Semua catatan',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            title: Text('Semua catatan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             background: Padding(
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 65),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.end,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Semua catatan',
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: onBackgroundColor),
-                  ),
+                  Text('Semua catatan', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: onBg)),
                   SizedBox(height: 4),
-                  Text(
-                    '${currentNotes.length} catatan',
-                    style: TextStyle(fontSize: 16, color: secondaryTextColor),
-                  ),
+                  Text(_isSearching ? '${currentNotes.length} hasil ditemukan' : '${currentNotes.length} catatan', style: TextStyle(fontSize: 16, color: secTextColor)),
                 ],
               ),
             ),
           ),
           bottom: PreferredSize(
-            preferredSize: Size.fromHeight(56.0),
+            preferredSize: Size.fromHeight(56),
             child: Container(
               color: Theme.of(context).scaffoldBackgroundColor,
               padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Builder(builder: (context) {
-                    return IconButton(
-                      icon: Icon(Icons.menu),
-                      onPressed: () => Scaffold.of(context).openDrawer(),
-                      tooltip: 'Buka menu',
-                    );
-                  }),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      PopupMenuButton<SortBy>(
-                        onSelected: _onSortCriteriaChanged,
-                        color: Theme.of(context).cardColor,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                        itemBuilder: (BuildContext context) => <PopupMenuEntry<SortBy>>[
-                          PopupMenuItem<SortBy>(value: SortBy.date, child: Text('Tanggal diubah')),
-                          PopupMenuItem<SortBy>(value: SortBy.title, child: Text('Judul')),
-                        ],
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                          decoration: BoxDecoration(color: Theme.of(context).dividerColor, borderRadius: BorderRadius.circular(20.0)),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(_currentSortBy == SortBy.date ? 'Tanggal diubah' : 'Judul', style: TextStyle(fontWeight: FontWeight.w500)),
-                              SizedBox(width: 5),
-                              Icon(Icons.keyboard_arrow_down, color: secondaryTextColor, size: 20),
-                            ],
-                          ),
-                        ),
-                      ),
-                      IconButton(icon: Icon(_isAscending ? Icons.arrow_upward : Icons.arrow_downward), onPressed: _toggleSortDirection),
-                      IconButton(icon: Icon(Icons.search), onPressed: () {}),
-                    ],
-                  ),
-                ],
-              ),
+              child: _isSearching ? _buildSearchBar(secTextColor, onBg) : _buildNormalAppBar(secTextColor),
             ),
           ),
         ),
-
-        if (_activeFilterTags.isNotEmpty)
+        if (_activeFilterTags.isNotEmpty && !_isSearching)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Wrap(
-                spacing: 8.0,
-                runSpacing: 4.0,
+                spacing: 8,
+                runSpacing: 4,
                 children: [
                   ..._activeFilterTags.map((tag) => Chip(
                     label: Text(tag),
-                    onDeleted: () {
-                      setState(() {
-                        _activeFilterTags.remove(tag);
-                      });
-                    },
+                    onDeleted: () => setState(() => _activeFilterTags.remove(tag)),
                   )),
                   GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _activeFilterTags.clear();
-                      });
-                    },
+                    onTap: () => setState(() => _activeFilterTags.clear()),
                     child: Chip(
                       label: Text('Hapus Semua', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                       avatar: Icon(Icons.close, color: Theme.of(context).colorScheme.error, size: 18),
@@ -388,15 +341,11 @@ class _NoteListScreenState extends State<NoteListScreen> {
               ),
             ),
           ),
-
         SliverPadding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                final note = currentNotes[index];
-                return _buildNoteTile(note, false);
-              },
+                  (context, index) => _buildNoteTile(currentNotes[index], false),
               childCount: currentNotes.length,
             ),
           ),
@@ -405,29 +354,89 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
   }
 
+  Widget _buildNormalAppBar(Color secTextColor) {
+    return Row(
+      children: [
+        Builder(
+          builder: (context) => IconButton(
+            icon: Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        Spacer(), // Dorong semua tombol ke kanan
+        PopupMenuButton<SortBy>(
+          onSelected: _onSortCriteriaChanged,
+          itemBuilder: (_) => [
+            PopupMenuItem(value: SortBy.dateModified, child: Text('Tanggal diubah')),
+            PopupMenuItem(value: SortBy.dateCreated, child: Text('Tanggal dibuat')),
+            PopupMenuItem(value: SortBy.title, child: Text('Judul')),
+          ],
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+                color: Theme.of(context).dividerColor,
+                borderRadius: BorderRadius.circular(20)
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _currentSortBy == SortBy.dateModified
+                      ? 'Tanggal diubah'
+                      : _currentSortBy == SortBy.dateCreated
+                      ? 'Tanggal dibuat'
+                      : 'Judul',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+                SizedBox(width: 5),
+                Icon(Icons.keyboard_arrow_down, color: secTextColor, size: 20),
+              ],
+            ),
+          ),
+        ),
+        IconButton(
+          icon: Icon(_isAscending ? Icons.arrow_upward : Icons.arrow_downward),
+          onPressed: _toggleSortDirection,
+        ),
+        IconButton(
+          icon: Icon(Icons.search),
+          onPressed: _toggleSearch,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchBar(Color secTextColor, Color onBg) {
+    return Expanded(
+      child: Row(
+        children: [
+          IconButton(icon: Icon(Icons.arrow_back), onPressed: _toggleSearch),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              autofocus: true,
+              decoration: InputDecoration(hintText: 'Cari catatan...', border: InputBorder.none, hintStyle: TextStyle(color: secTextColor)),
+              style: TextStyle(color: onBg),
+            ),
+          ),
+          if (_searchQuery.isNotEmpty) IconButton(icon: Icon(Icons.clear), onPressed: () => _searchController.clear()),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNoteTile(Note note, bool isSelected) {
-    final Color primaryColor = Theme.of(context).primaryColor;
-    final TextStyle? bodySmallStyle = Theme.of(context).textTheme.bodySmall;
+    final primaryColor = Theme.of(context).primaryColor;
+    final bodySmallStyle = Theme.of(context).textTheme.bodySmall;
 
     return ListTile(
-      onTap: () {
-        if (_isSelectionMode) {
-          _toggleSelection(note);
-        } else {
-          _editNote(note);
-        }
-      },
-      onLongPress: () {
-        _startSelection(note);
-      },
-      contentPadding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 0),
+      onTap: () => _isSelectionMode ? _toggleSelection(note) : _editNote(note),
+      onLongPress: () => _startSelection(note),
+      contentPadding: EdgeInsets.symmetric(vertical: 8),
       tileColor: isSelected ? primaryColor.withOpacity(0.2) : null,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       leading: _isSelectionMode
-          ? Icon(
-        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: isSelected ? primaryColor : Colors.grey,
-      )
+          ? Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, color: isSelected ? primaryColor : Colors.grey)
           : Container(
         width: 50,
         height: 50,
@@ -441,17 +450,8 @@ class _NoteListScreenState extends State<NoteListScreen> {
           Text(formatDate(note.timestamp), style: bodySmallStyle),
           if (note.tags.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 4.0),
-              child: Text(
-                note.tags.map((tag) => '#$tag').join(' '),
-                style: bodySmallStyle?.copyWith(
-                  color: primaryColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ) ?? TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.w500),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(note.tags.map((t) => '#$t').join(' '), style: bodySmallStyle?.copyWith(color: primaryColor, fontSize: 12, fontWeight: FontWeight.w500)),
             ),
         ],
       ),
@@ -464,32 +464,18 @@ class _NoteListScreenState extends State<NoteListScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              IconButton(icon: Icon(Icons.close), onPressed: _clearSelection),
-              SizedBox(width: 16),
-              Text('${_selectedNotes.length}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          Row(
-            children: [
-              TextButton(
-                onPressed: _selectAllNotes,
-                child: Text(
-                  _selectedNotes.length == _filteredNotes.length ? 'BATALKAN' : 'PILIH SEMUA',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.onBackground,
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.delete_outline),
-                onPressed: _selectedNotes.isEmpty ? null : _deleteSelectedNotes,
-                tooltip: 'Hapus',
-              ),
-            ],
-          ),
+          Row(children: [
+            IconButton(icon: Icon(Icons.close), onPressed: _clearSelection),
+            SizedBox(width: 16),
+            Text('${_selectedNotes.length}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ]),
+          Row(children: [
+            TextButton(
+              onPressed: _selectAllNotes,
+              child: Text(_selectedNotes.length == _filteredNotes.length ? 'BATALKAN' : 'PILIH SEMUA', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            IconButton(icon: Icon(Icons.delete_outline), onPressed: _selectedNotes.isEmpty ? null : _deleteSelectedNotes),
+          ]),
         ],
       ),
     );

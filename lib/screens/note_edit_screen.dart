@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/note.dart';
+import '../providers/tag_provider.dart';
 
 class NoteEditScreen extends StatefulWidget {
   final Note? note;
@@ -13,7 +15,6 @@ class NoteEditScreen extends StatefulWidget {
 class _NoteEditScreenState extends State<NoteEditScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
-
   Set<String> _currentTags = {};
 
   @override
@@ -23,7 +24,6 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       _titleController.text = widget.note!.title;
       _contentController.text = widget.note!.content;
       _currentTags = Set.from(widget.note!.tags);
-    } else {
     }
   }
 
@@ -40,8 +40,16 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
         title: _titleController.text.isEmpty ? 'Tanpa Judul' : _titleController.text,
         content: _contentController.text,
         timestamp: DateTime.now(),
+        createdAt: widget.note?.createdAt ?? DateTime.now(),
         tags: _currentTags,
       );
+
+      // simpan tag ke global provider
+      final tagProvider = Provider.of<TagProvider>(context, listen: false);
+      for (var tag in _currentTags) {
+        tagProvider.addTag(tag);
+      }
+
       Navigator.pop(context, noteToSave);
     } else {
       Navigator.pop(context);
@@ -69,10 +77,11 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       ),
       builder: (context) {
         return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setStateBottomSheet) {
+          builder: (context, setStateBottomSheet) {
+            final tagProvider = Provider.of<TagProvider>(context, listen: false);
+            final allTags = tagProvider.allTags;
 
-            void addTag() {
-              final newTag = tagInputController.text.trim().toLowerCase();
+            void addTag(String newTag) {
               if (newTag.isNotEmpty && !_currentTags.contains(newTag)) {
                 setState(() {
                   _currentTags.add(newTag);
@@ -85,8 +94,10 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
 
             return Padding(
               padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
-                  left: 16, right: 16, top: 16
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 16,
+                right: 16,
+                top: 16,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -103,29 +114,49 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                   if (_currentTags.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 24.0),
-                      child: Center(child: Text('Belum ada tag.', style: TextStyle(color: Colors.grey[600]))),
+                      child: Center(child: Text('Belum ada tag.', style: TextStyle(color: Colors.grey))),
                     )
                   else
                     Wrap(
-                      spacing: 8.0, runSpacing: 8.0,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: _currentTags.map((tag) => Chip(
                         label: Text(tag),
                         onDeleted: () {
-                          setState(() { _currentTags.remove(tag); });
+                          setState(() {
+                            _currentTags.remove(tag);
+                          });
                           setStateBottomSheet(() {});
                         },
                       )).toList(),
                     ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: allTags.map((tag) {
+                      return ActionChip(
+                        label: Text(tag),
+                        onPressed: () {
+                          if (!_currentTags.contains(tag)) {
+                            setState(() {
+                              _currentTags.add(tag);
+                            });
+                            setStateBottomSheet(() {});
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: tagInputController,
                     focusNode: focusNode,
                     decoration: InputDecoration(
                       hintText: '# Buat tag baru',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: Colors.grey.shade400)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: Colors.grey.shade400)),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    onSubmitted: (_) => addTag(),
+                    onSubmitted: (_) => addTag(tagInputController.text.trim().toLowerCase()),
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -149,7 +180,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                 child: Row(
                   children: [
-                    IconButton(icon: const Icon(Icons.arrow_back_ios_new), onPressed: () => _onWillPop()),
+                    IconButton(icon: const Icon(Icons.arrow_back_ios_new), onPressed: _onWillPop),
                     Expanded(
                       child: TextField(
                         controller: _titleController,

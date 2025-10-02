@@ -1,13 +1,15 @@
 class Note {
   String title;
   String content;
-  DateTime timestamp;
-  Set<String> tags; 
+  DateTime timestamp; // last modified
+  DateTime createdAt; // created time
+  Set<String> tags;
 
   Note({
     required this.title,
     required this.content,
     required this.timestamp,
-    Set<String>? tags,
-  }) : this.tags = tags ?? {};
+    required this.createdAt,
+    required this.tags,
+  });
 }
