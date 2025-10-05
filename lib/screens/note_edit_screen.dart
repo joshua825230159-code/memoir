@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../providers/tag_provider.dart';
+import 'package:uuid/uuid.dart';
 
 class NoteEditScreen extends StatefulWidget {
   final Note? note;
@@ -16,6 +17,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
   Set<String> _currentTags = {};
+  bool _isPinned = false;
 
   @override
   void initState() {
@@ -24,6 +26,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       _titleController.text = widget.note!.title;
       _contentController.text = widget.note!.content;
       _currentTags = Set.from(widget.note!.tags);
+      _isPinned = widget.note!.isPinned;
     }
   }
 
@@ -37,14 +40,15 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   Future<bool> _onWillPop() async {
     if (_contentController.text.isNotEmpty || _titleController.text.isNotEmpty) {
       final noteToSave = Note(
+        id: widget.note?.id,
         title: _titleController.text.isEmpty ? 'Tanpa Judul' : _titleController.text,
         content: _contentController.text,
         timestamp: DateTime.now(),
         createdAt: widget.note?.createdAt ?? DateTime.now(),
         tags: _currentTags,
+        isPinned: _isPinned,
       );
 
-      // simpan tag ke global provider
       final tagProvider = Provider.of<TagProvider>(context, listen: false);
       for (var tag in _currentTags) {
         tagProvider.addTag(tag);
@@ -186,9 +190,20 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                         controller: _titleController,
                         decoration: const InputDecoration(border: InputBorder.none, hintText: 'Judul'),
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        autofocus: widget.note == null,
                       ),
                     ),
                     IconButton(icon: const Icon(Icons.label_outline), onPressed: _showTagBottomSheet),
+
+                    IconButton(
+                      icon: Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+                      onPressed: () {
+                        setState(() {
+                          _isPinned = !_isPinned;
+                        });
+                      },
+                    ),
+
                     IconButton(icon: const Icon(Icons.delete_outline), onPressed: _deleteNote),
                   ],
                 ),
@@ -201,7 +216,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                     decoration: const InputDecoration(hintText: 'Mulai menulis...', border: InputBorder.none),
                     maxLines: null,
                     keyboardType: TextInputType.multiline,
-                    autofocus: widget.note == null,
+                    // autofocus: widget.note == null,
                   ),
                 ),
               ),

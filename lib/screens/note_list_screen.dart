@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/note.dart';
 import '../providers/theme_provider.dart';
+import '../services/note_storage_service.dart';
 import 'note_edit_screen.dart';
 import 'tag_filter_screen.dart';
 import 'trash_screen.dart';
@@ -9,13 +10,17 @@ import 'trash_screen.dart';
 enum SortBy { dateModified, dateCreated, title }
 
 class NoteListScreen extends StatefulWidget {
+  const NoteListScreen({super.key});
+
   @override
   _NoteListScreenState createState() => _NoteListScreenState();
 }
 
 class _NoteListScreenState extends State<NoteListScreen> {
-  final List<Note> notes = [];
-  final List<Note> _deletedNotes = [];
+  List<Note> notes = [];
+  List<Note> _deletedNotes = [];
+  final _storage = NoteStorageService();
+  bool _isLoading = true;
 
   SortBy _currentSortBy = SortBy.dateModified;
   bool _isAscending = false;
@@ -31,12 +36,25 @@ class _NoteListScreenState extends State<NoteListScreen> {
   @override
   void initState() {
     super.initState();
+    _loadNotes();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text;
       });
     });
+  }
+
+  Future<void> _loadNotes() async {
+    final loadedNotes = await _storage.readNotes();
+    setState(() {
+      notes = loadedNotes;
+      _isLoading = false;
+    });
     _applySort();
+  }
+
+  Future<void> _saveNotes() async {
+    await _storage.writeNotes(notes);
   }
 
   @override
@@ -68,18 +86,26 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   void _applySort() {
+    final unsortedNotes = List<Note>.from(notes);
+    final pinnedNotes = unsortedNotes.where((note) => note.isPinned).toList();
+    final unpinnedNotes = unsortedNotes.where((note) => !note.isPinned).toList();
+
+    pinnedNotes.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    if (_currentSortBy == SortBy.dateModified) {
+      unpinnedNotes.sort((a, b) =>
+      _isAscending ? a.timestamp.compareTo(b.timestamp) : b.timestamp.compareTo(a.timestamp));
+    } else if (_currentSortBy == SortBy.dateCreated) {
+      unpinnedNotes.sort((a, b) =>
+      _isAscending ? a.createdAt.compareTo(b.createdAt) : b.createdAt.compareTo(a.createdAt));
+    } else {
+      unpinnedNotes.sort((a, b) => _isAscending
+          ? a.title.toLowerCase().compareTo(b.title.toLowerCase())
+          : b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+    }
+
     setState(() {
-      if (_currentSortBy == SortBy.dateModified) {
-        notes.sort((a, b) =>
-        _isAscending ? a.timestamp.compareTo(b.timestamp) : b.timestamp.compareTo(a.timestamp));
-      } else if (_currentSortBy == SortBy.dateCreated) {
-        notes.sort((a, b) =>
-        _isAscending ? a.createdAt.compareTo(b.createdAt) : b.createdAt.compareTo(a.createdAt));
-      } else {
-        notes.sort((a, b) => _isAscending
-            ? a.title.toLowerCase().compareTo(b.title.toLowerCase())
-            : b.title.toLowerCase().compareTo(a.title.toLowerCase()));
-      }
+      notes = [...pinnedNotes, ...unpinnedNotes];
     });
   }
 
@@ -145,18 +171,33 @@ class _NoteListScreenState extends State<NoteListScreen> {
         ..removeCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text("$count catatan dipindahkan ke sampah")));
     });
+    _saveNotes();
+  }
+
+  bool _isPinLimitReached() {
+    return notes.where((n) => n.isPinned).length >= 3;
   }
 
   void _addNote() async {
     final newNote = await Navigator.push<Note>(
       context,
-      MaterialPageRoute(builder: (context) => NoteEditScreen()),
+      MaterialPageRoute(builder: (context) => const NoteEditScreen()),
     );
     if (newNote != null) {
-      setState(() {
-        notes.insert(0, newNote);
-      });
+      if (newNote.isPinned && _isPinLimitReached()) {
+        ScaffoldMessenger.of(context)
+          ..removeCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text("Batas pin tercapai (maks 3). Catatan disimpan tanpa pin.")));
+        setState(() {
+          notes.insert(0, newNote.copyWith(isPinned: false));
+        });
+      } else {
+        setState(() {
+          notes.insert(0, newNote);
+        });
+      }
       _applySort();
+      _saveNotes();
     }
   }
 
@@ -173,13 +214,27 @@ class _NoteListScreenState extends State<NoteListScreen> {
         });
         ScaffoldMessenger.of(context)
           ..removeCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text("Catatan dipindahkan ke sampah")));
+          ..showSnackBar(const SnackBar(content: Text("Catatan dipindahkan ke sampah")));
+        _saveNotes();
       } else if (result is Note) {
-        setState(() {
-          final index = notes.indexOf(note);
-          if (index != -1) notes[index] = result;
-        });
+        final bool isPinningNewItem = result.isPinned && !note.isPinned;
+        if (isPinningNewItem && _isPinLimitReached()) {
+          ScaffoldMessenger.of(context)
+            ..removeCurrentSnackBar()
+            ..showSnackBar(const SnackBar(content: Text("Batas pin tercapai (maks 3). Perubahan disimpan tanpa pin.")));
+
+          setState(() {
+            final index = notes.indexWhere((n) => n.id == result.id);
+            if (index != -1) notes[index] = result.copyWith(isPinned: false);
+          });
+        } else {
+          setState(() {
+            final index = notes.indexWhere((n) => n.id == result.id);
+            if (index != -1) notes[index] = result;
+          });
+        }
         _applySort();
+        _saveNotes();
       }
     }
   }
@@ -210,6 +265,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
     );
 
     if (result != null) {
+      bool dataChanged = false;
       setState(() {
         final List<Note> restoredNotes = result['restored'] ?? [];
         final List<Note> permanentlyDeletedNotes = result['deletedPermanently'] ?? [];
@@ -219,21 +275,26 @@ class _NoteListScreenState extends State<NoteListScreen> {
           _deletedNotes.clear();
           ScaffoldMessenger.of(context)
             ..removeCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text("Sampah dikosongkan")));
+            ..showSnackBar(const SnackBar(content: Text("Sampah dikosongkan")));
         } else if (restoredNotes.isNotEmpty) {
           notes.addAll(restoredNotes);
           _deletedNotes.removeWhere((note) => restoredNotes.contains(note));
-           ScaffoldMessenger.of(context)
+          ScaffoldMessenger.of(context)
             ..removeCurrentSnackBar()
             ..showSnackBar(SnackBar(content: Text("${restoredNotes.length} catatan dipulihkan")));
+          dataChanged = true;
         } else if (permanentlyDeletedNotes.isNotEmpty) {
-            _deletedNotes.removeWhere((note) => permanentlyDeletedNotes.contains(note));
-            ScaffoldMessenger.of(context)
+          _deletedNotes.removeWhere((note) => permanentlyDeletedNotes.contains(note));
+          ScaffoldMessenger.of(context)
             ..removeCurrentSnackBar()
             ..showSnackBar(SnackBar(content: Text("${permanentlyDeletedNotes.length} catatan dihapus permanen")));
         }
-        _applySort();
       });
+
+      if (dataChanged) {
+        _applySort();
+        _saveNotes();
+      }
     }
   }
 
@@ -254,6 +315,12 @@ class _NoteListScreenState extends State<NoteListScreen> {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final currentNotes = _filteredNotes;
 
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       drawer: Drawer(
         backgroundColor: Theme.of(context).cardColor,
@@ -262,26 +329,26 @@ class _NoteListScreenState extends State<NoteListScreen> {
           children: [
             DrawerHeader(
               decoration: BoxDecoration(color: Theme.of(context).primaryColor),
-              child: Text('Menu Catatan', style: TextStyle(color: Colors.white, fontSize: 24)),
+              child: const Text('Menu Catatan', style: TextStyle(color: Colors.white, fontSize: 24)),
             ),
             ListTile(
-              leading: Icon(Icons.label_outline),
-              title: Text('Tag'),
+              leading: const Icon(Icons.label_outline),
+              title: const Text('Tag'),
               onTap: _openTagFilter,
             ),
             ListTile(
-              leading: Icon(Icons.delete_outline),
-              title: Text('Sampah'),
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Sampah'),
               onTap: _openTrashScreen,
             ),
-            Divider(),
+            const Divider(),
             ListTile(
-              leading: Icon(Icons.settings_outlined),
-              title: Text('Pengaturan'),
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Pengaturan'),
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
-              title: Text('Mode Gelap'),
+              title: const Text('Mode Gelap'),
               trailing: Switch.adaptive(
                 value: themeProvider.isDarkMode,
                 onChanged: (val) => themeProvider.toggleTheme(val),
@@ -292,7 +359,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
       ),
       floatingActionButton: (_isSelectionMode || _isSearching) ? null : FloatingActionButton(
         onPressed: _addNote,
-        child: Icon(Icons.edit),
+        child: const Icon(Icons.edit),
       ),
       body: SafeArea(
         child: _isSelectionMode ? _buildSelectionMode(currentNotes) : _buildDefaultLayout(currentNotes),
@@ -305,9 +372,9 @@ class _NoteListScreenState extends State<NoteListScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          SizedBox(height: 20),
+          const SizedBox(height: 20),
           _buildSelectionAppBar(),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Expanded(
             child: ListView.builder(
               itemCount: currentNotes.length,
@@ -336,7 +403,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
           pinned: true,
           floating: true,
           flexibleSpace: FlexibleSpaceBar(
-            title: Text('Semua catatan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            title: const Text('Semua catatan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             background: Padding(
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 65),
               child: Column(
@@ -344,17 +411,17 @@ class _NoteListScreenState extends State<NoteListScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Semua catatan', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: onBg)),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(_isSearching ? '${currentNotes.length} hasil ditemukan' : '${currentNotes.length} catatan', style: TextStyle(fontSize: 16, color: secTextColor)),
                 ],
               ),
             ),
           ),
           bottom: PreferredSize(
-            preferredSize: Size.fromHeight(56),
+            preferredSize: const Size.fromHeight(56),
             child: Container(
               color: Theme.of(context).scaffoldBackgroundColor,
-              padding: EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               child: _isSearching ? _buildSearchBar(secTextColor, onBg) : _buildNormalAppBar(secTextColor),
             ),
           ),
@@ -384,7 +451,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
             ),
           ),
         SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
                   (context, index) => _buildNoteTile(currentNotes[index], false),
@@ -401,22 +468,22 @@ class _NoteListScreenState extends State<NoteListScreen> {
       children: [
         Builder(
           builder: (context) => IconButton(
-            icon: Icon(Icons.menu),
+            icon: const Icon(Icons.menu),
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        Spacer(),
+        const Spacer(),
         PopupMenuButton<SortBy>(
           onSelected: _onSortCriteriaChanged,
           itemBuilder: (_) => [
-            PopupMenuItem(value: SortBy.dateModified, child: Text('Tanggal diubah')),
-            PopupMenuItem(value: SortBy.dateCreated, child: Text('Tanggal dibuat')),
-            PopupMenuItem(value: SortBy.title, child: Text('Judul')),
+            const PopupMenuItem(value: SortBy.dateModified, child: Text('Tanggal diubah')),
+            const PopupMenuItem(value: SortBy.dateCreated, child: Text('Tanggal dibuat')),
+            const PopupMenuItem(value: SortBy.title, child: Text('Judul')),
           ],
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-                color: Theme.of(context).dividerColor,
+                color: Theme.of(context).colorScheme.surfaceVariant,
                 borderRadius: BorderRadius.circular(20)
             ),
             child: Row(
@@ -428,9 +495,9 @@ class _NoteListScreenState extends State<NoteListScreen> {
                       : _currentSortBy == SortBy.dateCreated
                       ? 'Tanggal dibuat'
                       : 'Judul',
-                  style: TextStyle(fontWeight: FontWeight.w500),
+                  style: const TextStyle(fontWeight: FontWeight.w500),
                 ),
-                SizedBox(width: 5),
+                const SizedBox(width: 5),
                 Icon(Icons.keyboard_arrow_down, color: secTextColor, size: 20),
               ],
             ),
@@ -441,7 +508,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
           onPressed: _toggleSortDirection,
         ),
         IconButton(
-          icon: Icon(Icons.search),
+          icon: const Icon(Icons.search),
           onPressed: _toggleSearch,
         ),
       ],
@@ -449,21 +516,19 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   Widget _buildSearchBar(Color secTextColor, Color onBg) {
-    return Expanded(
-      child: Row(
-        children: [
-          IconButton(icon: Icon(Icons.arrow_back), onPressed: _toggleSearch),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              autofocus: true,
-              decoration: InputDecoration(hintText: 'Cari catatan...', border: InputBorder.none, hintStyle: TextStyle(color: secTextColor)),
-              style: TextStyle(color: onBg),
-            ),
+    return Row(
+      children: [
+        IconButton(icon: const Icon(Icons.arrow_back), onPressed: _toggleSearch),
+        Expanded(
+          child: TextField(
+            controller: _searchController,
+            autofocus: true,
+            decoration: InputDecoration(hintText: 'Cari catatan...', border: InputBorder.none, hintStyle: TextStyle(color: secTextColor)),
+            style: TextStyle(color: onBg),
           ),
-          if (_searchQuery.isNotEmpty) IconButton(icon: Icon(Icons.clear), onPressed: () => _searchController.clear()),
-        ],
-      ),
+        ),
+        if (_searchQuery.isNotEmpty) IconButton(icon: const Icon(Icons.clear), onPressed: () => _searchController.clear()),
+      ],
     );
   }
 
@@ -474,7 +539,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
     return ListTile(
       onTap: () => _isSelectionMode ? _toggleSelection(note) : _editNote(note),
       onLongPress: () => _startSelection(note),
-      contentPadding: EdgeInsets.symmetric(vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(vertical: 8),
       tileColor: isSelected ? primaryColor.withOpacity(0.2) : null,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       leading: _isSelectionMode
@@ -482,10 +547,26 @@ class _NoteListScreenState extends State<NoteListScreen> {
           : Container(
         width: 50,
         height: 50,
-        decoration: BoxDecoration(color: Theme.of(context).dividerColor, borderRadius: BorderRadius.circular(8)),
-        child: Center(child: Icon(Icons.description, color: Colors.grey.shade500)),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceVariant, borderRadius: BorderRadius.circular(8)),
+        child: Icon(Icons.description, color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
-      title: Text(note.title, style: TextStyle(fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              note.title,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (note.isPinned)
+            Padding(
+              padding: const EdgeInsets.only(left: 8.0),
+              child: Icon(Icons.push_pin, size: 16, color: Theme.of(context).colorScheme.secondary),
+            ),
+        ],
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -501,22 +582,22 @@ class _NoteListScreenState extends State<NoteListScreen> {
   }
 
   Widget _buildSelectionAppBar() {
-    return Container(
+    return SizedBox(
       height: 60,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(children: [
-            IconButton(icon: Icon(Icons.close), onPressed: _clearSelection),
-            SizedBox(width: 16),
-            Text('${_selectedNotes.length}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            IconButton(icon: const Icon(Icons.close), onPressed: _clearSelection),
+            const SizedBox(width: 16),
+            Text('${_selectedNotes.length}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           ]),
           Row(children: [
             TextButton(
               onPressed: _selectAllNotes,
-              child: Text(_selectedNotes.length == _filteredNotes.length ? 'BATALKAN' : 'PILIH SEMUA', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(_selectedNotes.length == _filteredNotes.length ? 'BATALKAN' : 'PILIH SEMUA', style: const TextStyle(fontWeight: FontWeight.bold)),
             ),
-            IconButton(icon: Icon(Icons.delete_outline), onPressed: _selectedNotes.isEmpty ? null : _deleteSelectedNotes),
+            IconButton(icon: const Icon(Icons.delete_outline), onPressed: _selectedNotes.isEmpty ? null : _deleteSelectedNotes),
           ]),
         ],
       ),
